@@ -3,7 +3,7 @@
 
 esp_err_t MLX90614_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *dev, uint8_t slaveAddr, uint16_t sclSpeed){
     if (!bus || !dev || slaveAddr < 0x08 || slaveAddr > 0x77) return ESP_ERR_INVALID_ARG;
-    i2c_master_dev_config_t cfg = {
+    i2c_device_config_t cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
         .device_address = slaveAddr,
         .scl_speed_hz = sclSpeed
@@ -12,8 +12,8 @@ esp_err_t MLX90614_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *de
     if(ret != ESP_OK) return ret;
     if(*dev == NULL) return ESP_FAIL;
     for(int i = 0; i < 100; i++){
-        uint16_t POR_Status = 0;
-        ret = MLX90614_CheckPOR(*dev, slaveAddr, &POR_Status);
+        bool POR_Status = 0;
+        ret = MLX90614_CheckFlag(*dev,slaveAddr,&POR_Status,MLX90614_FLAG_POR);
         if(ret != ESP_OK) return ret;
         if(POR_Status) return ESP_OK;
         vTaskDelay(pdMS_TO_TICKS(1));
@@ -29,7 +29,7 @@ esp_err_t MLX90614_I2CRead(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint1
     uint8_t addrR = (slaveAddr << 1) | 1;
 
     for (uint16_t i = 0; i < nAddrRead; i++) {
-        cmd = (uint8_t)(startAddress + i).
+        cmd = (uint8_t)(startAddress + i);
         esp_err_t ret = i2c_master_transmit_receive(dev, &cmd, 1, buf, 3, 1000 / portTICK_PERIOD_MS);
         if (ret != ESP_OK) return ret;
         uint8_t pec_data[5] = {addrW, cmd, addrR, buf[0], buf[1]};
@@ -191,13 +191,16 @@ esp_err_t MLX90614_GetKt2Sign(i2c_master_dev_handle_t dev, uint8_t slaveAddr, bo
     return ret;
 }
 
-esp_err_t MLX90614_GetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t *addr){
+esp_err_t MLX90614_GetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_t *addr){
     if (!dev) return ESP_ERR_MLX90614_DEV_UNDEFINED;
-    if (wAddr < 0x08 || wAddr > 0x77) return ESP_ERR_MLX90614_INVALID_ADDR;
-    return MLX90614_I2CRead(dev, slaveAddr, 0x2E, 1, &addr);
+    uint16_t tmp;
+    esp_err_t ret = MLX90614_I2CRead(dev, slaveAddr, 0x2E, 1, &tmp);
+    if(ret != ESP_OK) return ret;
+    *addr = (uint8_t) tmp;
+    return ESP_OK;
 }
 
-esp_err_t MLX90614_SetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t wAddr){
+esp_err_t MLX90614_SetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_t wAddr){
     if (!dev) return ESP_ERR_MLX90614_DEV_UNDEFINED;
     if (wAddr < 0x08 || wAddr > 0x77) return ESP_ERR_MLX90614_INVALID_ADDR;
     return MLX90614_I2CWrite(dev, slaveAddr, 0x2E, wAddr);
@@ -304,4 +307,16 @@ float MLX90614_TemperatureInFahrenheit(float temperature){
 
 int16_t MLX90614_ConvertIRdata(uint16_t ir){
     return (int16_t)ir;
+}
+
+uint8_t MLX90614_CalcPEC(const uint8_t *data, size_t len){
+    uint8_t crc = 0x00;
+    for (size_t i = 0; i < len; i++) {
+        crc ^= data[i];
+        for (uint8_t bit = 0; bit < 8; bit++) {
+            if (crc & 0x80)crc = (crc << 1) ^ 0x07;
+            else crc <<= 1;
+        }
+    }
+    return crc;
 }

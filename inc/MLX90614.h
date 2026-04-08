@@ -7,6 +7,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
 
+#define ESP_ERR_MLX_BASE                         0xE000
+
 #define ESP_ERR_MLX90614_INIT_TIMEOUT            ESP_ERR_MLX_BASE
 #define ESP_ERR_MLX90614_WAKE_TIMEOUT           (ESP_ERR_MLX_BASE + 1)
 #define ESP_ERR_MLX90614_PROTECTED_MEM          (ESP_ERR_MLX_BASE + 2)
@@ -151,7 +153,7 @@ esp_err_t MLX90614_SetIIR(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_
 esp_err_t MLX90614_GetSensorCount(i2c_master_dev_handle_t dev, uint8_t slaveAddr, bool *num);
 
 /** Get the Ks sign used by the MLX90614 device */
-esp_err_t MLX90614_GetKsSign(i2c_master_dev_handle_t dev, uint8_t slaveAddr, bool *num)
+esp_err_t MLX90614_GetKsSign(i2c_master_dev_handle_t dev, uint8_t slaveAddr, bool *num);
 
 /** Get the FIR used by the MLX90614 device to filter the data */
 esp_err_t MLX90614_GetFIR(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_t *fir);
@@ -171,10 +173,10 @@ esp_err_t MLX90614_GetKt2Sign(i2c_master_dev_handle_t dev, uint8_t slaveAddr, bo
 /** Get the i2c address used by the MLX90614
  * @note technically redundant since you need to pass it's address to 
  * check it's address, but used for wakeup function and could verify the device exists*/
-esp_err_t MLX90614_GetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t *addr);
+esp_err_t MLX90614_GetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_t *addr);
 
 /** Set the i2c address used by the MLX90614 device */
-esp_err_t MLX90614_SetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t wAddr);
+esp_err_t MLX90614_SetI2CAddr(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_t wAddr);
 
 /** Get the identifier unique to each individual sensor */
 esp_err_t MLX90614_GetID(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint64_t *id);
@@ -211,5 +213,8 @@ float MLX90614_TemperatureInFahrenheit(float temperature);
 
 /** Helper function for converting from IR to C */
 int16_t MLX90614_ConvertIRdata(uint16_t ir);
+
+/**Error checking helper function */
+uint8_t MLX90614_CalcPEC(const uint8_t *data, size_t len);
 
 #endif
