@@ -1,7 +1,7 @@
 #include "MLX90614.h"
 
 
-esp_err_t MLX90614_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *dev, uint8_t slaveAddr, uint16_t sclSpeed){
+esp_err_t MLX90614_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *dev, uint8_t slaveAddr, uint32_t sclSpeed){
     if (!bus || !dev || slaveAddr < 0x08 || slaveAddr > 0x77) return ESP_ERR_INVALID_ARG;
     i2c_device_config_t cfg = {
         .dev_addr_length = I2C_ADDR_BIT_LEN_7,
@@ -30,7 +30,7 @@ esp_err_t MLX90614_I2CRead(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint1
 
     for (uint16_t i = 0; i < nAddrRead; i++) {
         cmd = (uint8_t)(startAddress + i);
-        esp_err_t ret = i2c_master_transmit_receive(dev, &cmd, 1, buf, 3, 1000 / portTICK_PERIOD_MS);
+        esp_err_t ret = i2c_master_transmit_receive(dev, &cmd, 1, buf, 3, 1000 );
         if (ret != ESP_OK) return ret;
         uint8_t pec_data[5] = {addrW, cmd, addrR, buf[0], buf[1]};
         uint8_t pec = MLX90614_CalcPEC(pec_data, 5);
@@ -46,13 +46,26 @@ esp_err_t MLX90614_I2CWrite(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint
     buf[0] = (uint8_t)startAddress;
     buf[1] = (uint8_t)(wData & 0xFF);
     buf[2] = (uint8_t)(wData >> 8);
-    return i2c_master_transmit(dev, buf, sizeof(buf), 1000 / portTICK_PERIOD_MS);
+    esp_err_t ret = i2c_master_transmit(dev, buf, sizeof(buf), 1000 );
+    if(ret != ESP_OK) return ret;
+    vTaskDelay(pdMS_TO_TICKS(10));
+    uint16_t temp = 0;
+    bool eeprom_busy = true;
+    uint32_t start_time = esp_timer_get_time() / 1000;
+    while(eeprom_busy && (esp_timer_get_time() / 1000) - start_time < 25){    
+        MLX90614_CheckFlag(dev,slaveAddr, &eeprom_busy, MLX90614_FLAG_EEPROM_BUSY);
+        vTaskDelay(pdMS_TO_TICKS(1));
+    }
+    if(eeprom_busy) return ESP_ERR_MLX90614_WRITE_FAIL;
+    ret = MLX90614_I2CRead(dev, slaveAddr, startAddress, 1, &temp);
+    if(ret != ESP_OK) return ret;
+    return (temp == wData)?ESP_OK:ESP_ERR_MLX90614_WRITE_FAIL;
 }
 
 esp_err_t MLX90614_I2CCmd(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t i2c_cmd){
     if (!dev) return ESP_ERR_MLX90614_DEV_UNDEFINED;
     uint8_t cmd = (uint8_t)i2c_cmd;
-    return i2c_master_transmit(dev, &cmd, 1, 1000 / portTICK_PERIOD_MS);
+    return i2c_master_transmit(dev, &cmd, 1, 1000);
 }
 
 esp_err_t MLX90614_DumpEE(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t *eeData){
@@ -155,6 +168,7 @@ esp_err_t MLX90614_GetFIR(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_
 
 esp_err_t MLX90614_SetFIR(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint8_t wFir){
     if (!dev) return ESP_ERR_MLX90614_DEV_UNDEFINED;
+    if (wFir <= 3) ESP_LOGW("Set FIR", "Melexis recommends to use higher than 64 (2^(wFir)) filter");
     uint16_t reg;
     esp_err_t ret;
     ret = MLX90614_I2CRead(dev, slaveAddr, 0x25, 1, &reg);
@@ -238,6 +252,16 @@ esp_err_t MLX90614_GetAmbTemp(i2c_master_dev_handle_t dev, uint8_t slaveAddr, fl
     return ESP_OK;
 }
 
+esp_err_t MLX90614_GetAmbObjTemp(i2c_master_dev_handle_t dev, uint8_t slaveAddr, float *amb, float *obj){
+    if (!dev) return ESP_ERR_MLX90614_DEV_UNDEFINED;
+    uint16_t buf[2];
+    esp_err_t ret = MLX90614_I2CRead(dev, slaveAddr, 0x06, 2, buf);
+    if (ret != ESP_OK) return ret;
+    *amb = (buf[0] * 0.02f) - 273.15f;
+    *obj = (buf[1] * 0.02f) - 273.15f;
+    return ESP_OK;
+}
+
 esp_err_t MLX90614_GetObjTemp(i2c_master_dev_handle_t dev, uint8_t slaveAddr, float *obj){
     if (!dev) return ESP_ERR_MLX90614_DEV_UNDEFINED;
     uint16_t raw;
@@ -288,7 +312,7 @@ esp_err_t MLX90614_CheckFlag(i2c_master_dev_handle_t dev, uint8_t slaveAddr, boo
 
 esp_err_t MLX90614_EnterSleep(i2c_master_dev_handle_t dev, uint8_t slaveAddr){
     uint8_t cmd = 0xFF;
-    return i2c_master_transmit(dev, &cmd, 1, 1000 / portTICK_PERIOD_MS);
+    return i2c_master_transmit(dev, &cmd, 1, 1000 );
 }
 
 esp_err_t MLX90614_Wake(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint32_t patience){

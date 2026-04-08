@@ -6,6 +6,8 @@
 #include <driver/i2c_master.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include <esp_log.h>
+#include <esp_timer.h>
 
 #define ESP_ERR_MLX_BASE                         0xE000
 
@@ -16,6 +18,10 @@
 #define ESP_ERR_MLX90614_DEV_UNDEFINED          (ESP_ERR_MLX_BASE + 4)
 #define ESP_ERR_MLX90614_INVALID_ADDR           (ESP_ERR_MLX_BASE + 5)
 #define ESP_ERR_MLX90614_UNSUPPORTED_FEATURE    (ESP_ERR_MLX_BASE + 6)
+#define ESP_ERR_MLX90614_WRITE_FAIL             (ESP_ERR_MLX_BASE + 7)
+
+#define MLX90614_DEFAULT_ADDRESS 0x5A
+#define MLX90614_DEFAULT_SPEED 100000
 
 // #define IR_COUNT_SHIFT      6
 // #define KS_SIGN_SHIFT       7
@@ -47,21 +53,17 @@ typedef enum {
  * @param[in] alaveAddr MLX90614 slave address, default 0x5A
  * @param[in] sclSpeed i2c bus speed in Hz, @note must be 10 kHz <= sclSpeed <= 100 kHz
  *
- * @retval  TBD Error while configuring the MLX90614 device
- *
  */
-esp_err_t MLX90614_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *dev, uint8_t slaveAddr, uint16_t sclSpeed);
+esp_err_t MLX90614_init(i2c_master_bus_handle_t bus, i2c_master_dev_handle_t *dev, uint8_t slaveAddr, uint32_t sclSpeed);
 
 /** MLX90614 block read I2C command
  *
- * @param[in] bus i2c bus handler
  * @param[in] dev i2c device handler
  * @param[in] slaveAddr I2C slave address of the device
  * @param[in] startAddress Start address for the block read
  * @param[in] nAddrRead Number of words to read
  * @param[out] rData Pointer to where the read data will be stored
  *
- * @retval  ESP_ERR_MLX90614_I2C_TIMEOUT Error while configuring the MLX90614 device
  *
  */
 esp_err_t MLX90614_I2CRead(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t startAddress, uint16_t nAddrRead, uint16_t *rData);
@@ -69,13 +71,10 @@ esp_err_t MLX90614_I2CRead(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint1
 /** MLX90614 configuration I2C command
  * @note For more information refer to the MLX90614 datasheet
  *
- * @param[in] bus i2c bus handler
  * @param[in] dev i2c device handler
  * @param[in] slaveAddr I2C slave address of the device
- * @param[in] writeAddress Configuration address to write to
+ * @param[in] startAddress Configuration address to write to
  * @param[in] wData Data to write
- *
- * @retval  ESP_ERR_MLX90614_I2C_TIMEOUT Error while configuring the MLX90614 device
  *
  */
 esp_err_t MLX90614_I2CWrite(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t startAddress, uint16_t wData);
@@ -83,38 +82,27 @@ esp_err_t MLX90614_I2CWrite(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint
 /** MLX90614 I2C commands send
  * @note The addressed reset, start/sync measurement and sleep commands ahsre the same I2C format. For more information refer to the MLX90614 datasheet
  *
- * @param[in] bus i2c bus handler
  * @param[in] dev i2c device handler
  * @param[in] slaveAddr I2C slave address of the device
  * @param[in] i2c_cmd MLX90614 I2C command to send
- *
- * @retval  ESP_ERR_MLX90614_I2C_TIMEOUT Error while sending the I2C command to the MLX90614 device
  *
  */
 esp_err_t MLX90614_I2CCmd(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t i2c_cmd);
 
 /** MLX90614 dump EEPROM Memory command
  *
- * @param[in] bus i2c bus handler
  * @param[in] dev i2c device handler
  * @param[in] slaveAddr I2C slave address of the device
  * @param[out] eeData Pointer to where the EEPROM data will be stored
- *
- * @retval  Dumped EEPROM Memory
- * @retval  TBD Error while configuring the MLX90614 device
  *
  */
 esp_err_t MLX90614_DumpEE(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t *eeData);
 
 /** MLX90614 dump RAM Memory command
  *
- * @param[in] bus i2c bus handler
  * @param[in] dev i2c device handler
  * @param[in] slaveAddr I2C slave address of the device
  * @param[out] ramData Pointer to where the RAM data will be stored
- *
- * @retval  Dumped RAM Memory
- * @retval  TBD Error while configuring the MLX90614 device
  *
  */
 esp_err_t MLX90614_DumpRAM(i2c_master_dev_handle_t dev, uint8_t slaveAddr, uint16_t *ramData);
@@ -189,6 +177,9 @@ esp_err_t MLX90614_GetIRdata2(i2c_master_dev_handle_t dev, uint8_t slaveAddr, ui
 
 /** Get the ambiant temperature from the device */
 esp_err_t MLX90614_GetAmbTemp(i2c_master_dev_handle_t dev, uint8_t slaveAddr, float *amb);
+
+/** Sequential read of the ambiant and object temperature from the device */
+esp_err_t MLX90614_GetAmbObjTemp(i2c_master_dev_handle_t dev, uint8_t slaveAddr, float *amb, float *obj);
 
 /** Get the object temperature from the main sensor on the device */
 esp_err_t MLX90614_GetObjTemp(i2c_master_dev_handle_t dev, uint8_t slaveAddr, float *obj);
